@@ -8,6 +8,9 @@ enum TimeDiv{tpb, fps};
 int processOperation();
 int processValue();
 struct list *processLocation();
+int processOperation_label();
+int processValue_label();
+struct list *processLocation_label();
 
 //Setup for Chords
 //////////////////////////////////////////////////
@@ -86,7 +89,6 @@ int processValue(){
 	noteNum++;
 
 	int chord = chordSize(currentChord);
-
 	if(chord == 0){
 		printf("Error: rest found at note %d where there should be a designator for literal or statement.", noteNum);
 		return 0;
@@ -118,6 +120,30 @@ int processValue(){
 	return 0;
 }
 
+int processValue_label(){
+	currentChord = currentChord->next;
+	currentNote = currentChord;
+	noteNum++;
+
+	int chord = chordSize(currentChord);
+	if(chord == 0){
+		printf("Error: rest found at note %d where there should be a designator for literal or statement.", noteNum);
+		return 0;
+	}
+
+	if(chord % 2 == 0){
+		return processOperation_label();
+	}else{
+		do{
+			currentChord = currentChord->next;
+			currentNote = currentChord;
+			noteNum++;
+		}while(currentChord->val >= 0 && currentChord->next != NULL);
+		return 0;
+	}
+	return 0;
+}
+
 struct list *processLocation(){
 	currentChord = currentChord->next;
 	currentNote = currentChord;
@@ -127,6 +153,15 @@ struct list *processLocation(){
 	return getList(baseList, val);
 }
 
+struct list *processLocation_label(){
+	currentChord = currentChord->next;
+	currentNote = currentChord;
+	noteNum++;
+	struct list *baseList = lists[currentNote->val];
+	processValue_label();
+	return baseList;
+}
+
 int processOperation(){
 	currentChord = currentChord->next;
 	currentNote = currentChord;
@@ -134,6 +169,7 @@ int processOperation(){
 
 	int output = 0;
 	if(currentChord->down == NULL){
+		int note = currentChord->val;	
 		struct list *baseList = lists[currentNote->val];
 		int val = processValue();
 		output = getList(baseList, val)->val;
@@ -152,10 +188,28 @@ int processOperation(){
 			output = val1 * val2;
 		}else if(interval == 3 || interval == 9){
 			//DIV
-			output = val1 / val2;
+			if(val2 == 0){
+				output = 0;
+				printf("Error: cannot divide by zero. Location: %d\n", noteNum);
+			}else{
+				output = val1 / val2;
+			}
 		}
 	}
 	return output;
+}
+
+int processOperation_label(){
+	currentChord = currentChord->next;
+	currentNote = currentChord;
+	noteNum++;
+	if(currentChord->down == NULL){
+		processValue_label();
+	}else if(currentChord->down->down == NULL){
+		processValue_label();
+		processValue_label();
+	}
+	return 0;
 }
 
 int *chordToArray(int size){
@@ -478,12 +532,12 @@ int main(int argc, char* argv[]){
 		noteNum++;
 
 		if(currentChord->down == NULL || (currentChord->down->down == NULL && currentChord->down->val % 12 == currentChord->val % 12)){
-			processLocation();	
+			processLocation_label();	
 		}else if(currentChord->down->down == NULL){
-			processLocation();
-			processValue();
+			processLocation_label();
+			processValue_label();
 		}else if(currentChord->down->down->down == NULL){
-			processLocation();
+			processLocation_label();
 		}else if(currentChord->down->down->down->down == NULL){
 			//LABEL
 			int *notes = chordToArray(4);
@@ -500,8 +554,8 @@ int main(int argc, char* argv[]){
 				labelChords[labelNum] = currentChord;
 				labelNum++;
 			}else{
-				processValue();
-				processValue();
+				processValue_label();
+				processValue_label();
 			}
 		}else{
 			printf("Error at note %d, expecting statement declaration, but the chord has more than 4 notes.", noteNum);
@@ -513,12 +567,13 @@ int main(int argc, char* argv[]){
 	currentChord = currentNote;
 
 	//The main loop
+	
+	if(DEBUG)
+		printf("STARTING MAIN LOOP\n");
 	do{
 		currentChord = currentChord->next;
 		currentNote = currentChord;
 		noteNum++;
-		if(DEBUG)
-			printf("STARTING MAIN LOOP\n");
 		if(currentChord->down == NULL || (currentChord->down->down == NULL && currentChord->down->val % 12 == currentChord->val % 12)){
 			if(DEBUG){
 				printf("Waiting for Input at %d\n", noteNum);
@@ -529,9 +584,6 @@ int main(int argc, char* argv[]){
 			scanf("%d", &input);
 			struct list *l = processLocation();
 			l->val = input;
-			currentChord = currentChord->next;
-			currentNote = currentChord;
-			noteNum++;
 		}else if(currentChord->down->down == NULL){
 			//ASSIGN
 			struct list *l = processLocation();
@@ -559,8 +611,6 @@ int main(int argc, char* argv[]){
 			}
 		}else if(currentChord->down->down->down->down == NULL){
 			//JUMP LABEL
-			if(DEBUG)
-				printf("Jump label found at %d", noteNum);
 			int *notes = chordToArray(4);
 			currentChord = currentChord->next;
 			currentNote = currentChord;
@@ -576,6 +626,9 @@ int main(int argc, char* argv[]){
 			if(chord > 0 && chord < 4){
 				num1 = processValue();
 				num2 = processValue();
+			}else if (DEBUG){
+				jumpBool = -1;
+				printf("Found a starting jump label at %d\n", noteNum);
 			}
 			if(chord == 1){
 				//EQUALS
@@ -605,12 +658,18 @@ int main(int argc, char* argv[]){
 				//JUMP
 				for(int i = 0; i < labelNum; i++){
 					if(labels[i][1] == notes[0] && labels[i][2] == notes[1] && labels[i][3] == notes[2] && labels[i][4] == notes[3]){
-						noteNum = labels[i][0];
+						if(DEBUG)
+							printf("Currently at %d\n", noteNum);
+						noteNum = labels[i][0] - 1;
 						currentChord = labelChords[i];
 						currentNote = currentChord;
+						if(DEBUG)
+							printf("Jumping to %d, the note with the value of %d\n", noteNum, currentChord->val);
 						break;
 					}
 				}
+			}else if(DEBUG && jumpBool == 0){
+				printf("Decided not to jump at %d\n", noteNum);
 			}
 		}else{
 			printf("Error: the chord designating the statement type at note %d has more than four notes\n", noteNum);
